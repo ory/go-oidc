@@ -290,7 +290,7 @@ func TestNewProvider(t *testing.T) {
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				io.WriteString(w, strings.ReplaceAll(test.data, "ISSUER", issuer))
+				_, _ = io.WriteString(w, strings.ReplaceAll(test.data, "ISSUER", issuer))
 			}
 			s := httptest.NewServer(http.HandlerFunc(hf))
 			defer s.Close()
@@ -342,6 +342,44 @@ func TestNewProvider(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("caches openid config", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		nFetched := 0
+
+		hf := func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/.well-known/openid-configuration" {
+				http.NotFound(w, r)
+				return
+			}
+			nFetched++
+			issuer := "http://" + r.Host
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{
+				"issuer": "%s",
+				"authorization_endpoint": "https://example.com/auth",
+				"token_endpoint": "https://example.com/token",
+				"jwks_uri": "https://example.com/keys",
+				"id_token_signing_alg_values_supported": ["RS256"]
+			}`, issuer))
+		}
+		s := httptest.NewServer(http.HandlerFunc(hf))
+		defer s.Close()
+
+		for range 100 {
+			_, err := NewProvider(ctx, s.URL)
+			if err != nil {
+				t.Fatalf("NewProvider() failed: %v", err)
+			}
+		}
+
+		if nFetched > 5 {
+			t.Errorf("NewProvider() fetched openid config too often, got=%d, want<=5", nFetched)
+		}
+	})
 }
 
 func TestGetClient(t *testing.T) {

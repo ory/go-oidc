@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
+
 	"golang.org/x/oauth2"
 )
 
@@ -201,35 +203,53 @@ func (p *ProviderConfig) NewProvider(ctx context.Context) *Provider {
 	}
 }
 
+var oidcConfigCache, _ = ristretto.NewCache(&ristretto.Config[string, []byte]{
+	NumCounters: 10_000,
+	MaxCost:     10_000 * 1024 * 1024, // 10k items, 1MB each
+	BufferItems: 64,
+})
+
 // NewProvider uses the OpenID Connect discovery mechanism to construct a Provider.
 //
 // The issuer is the URL identifier for the service. For example: "https://accounts.google.com"
 // or "https://login.salesforce.com".
 func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
-	req, err := http.NewRequest("GET", wellKnown, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := doRequest(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("unable to read response body: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", resp.Status, body)
-	}
 
 	var p providerJSON
-	err = unmarshalResp(resp, body, &p)
-	if err != nil {
-		return nil, fmt.Errorf("oidc: failed to decode provider discovery object: %v", err)
+	var body []byte
+
+	if cached, found := oidcConfigCache.Get(wellKnown); found {
+		err := json.Unmarshal(cached, &p)
+		if err != nil {
+			return nil, fmt.Errorf("oidc: failed to decode provider discovery object: %v", err)
+		}
+		body = cached
+	} else {
+		req, err := http.NewRequest("GET", wellKnown, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := doRequest(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			return nil, fmt.Errorf("unable to read response body: %v", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("%s: %s", resp.Status, body)
+		}
+		oidcConfigCache.Set(wellKnown, body, int64(len(body)))
+
+		err = unmarshalResp(resp, body, &p)
+		if err != nil {
+			return nil, fmt.Errorf("oidc: failed to decode provider discovery object: %v", err)
+		}
 	}
 
 	issuerURL, skipIssuerValidation := ctx.Value(issuerURLKey).(string)
@@ -239,7 +259,7 @@ func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 	if p.Issuer != issuerURL && !skipIssuerValidation {
 		return nil, fmt.Errorf("oidc: issuer did not match the issuer returned by provider, expected %q got %q", issuer, p.Issuer)
 	}
-	var algs []string
+	algs := make([]string, 0, len(p.Algorithms))
 	for _, a := range p.Algorithms {
 		if supportedAlgorithms[a] {
 			algs = append(algs, a)
