@@ -245,6 +245,7 @@ func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 			return nil, fmt.Errorf("%s: %s", resp.Status, body)
 		}
 		oidcConfigCache.Set(wellKnown, body, int64(len(body)))
+		oidcConfigCache.Wait()
 
 		err = unmarshalResp(resp, body, &p)
 		if err != nil {

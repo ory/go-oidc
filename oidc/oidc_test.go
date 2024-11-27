@@ -395,8 +395,8 @@ func TestNewProvider(t *testing.T) {
 			}
 		}
 
-		if nFetched > 10 {
-			t.Errorf("NewProvider() fetched openid config too often, got=%d, want<=10", nFetched)
+		if nFetched != 2 {
+			t.Errorf("NewProvider() fetched openid config too often, got=%d, want=2", nFetched)
 		}
 	})
 }
