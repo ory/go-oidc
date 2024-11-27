@@ -370,9 +370,24 @@ func TestNewProvider(t *testing.T) {
 		defer s.Close()
 
 		for range 100 {
-			_, err := NewProvider(ctx, s.URL)
+			p, err := NewProvider(ctx, s.URL)
 			if err != nil {
 				t.Fatalf("NewProvider() failed: %v", err)
+			}
+			if p.issuer != "http://"+s.Listener.Addr().String() {
+				t.Fatalf("NewProvider() unexpected issuer value, got=%s, want=%s", p.issuer, s.URL)
+			}
+			if p.authURL != "https://example.com/auth" {
+				t.Fatalf("NewProvider() unexpected authURL value, got=%s, want=https://example.com/auth", p.authURL)
+			}
+			if p.tokenURL != "https://example.com/token" {
+				t.Fatalf("NewProvider() unexpected tokenURL value, got=%s, want=https://example.com/token", p.tokenURL)
+			}
+			if p.jwksURL != "https://example.com/keys" {
+				t.Fatalf("NewProvider() unexpected jwksURL value, got=%s, want=https://example.com/keys", p.jwksURL)
+			}
+			if !reflect.DeepEqual(p.algorithms, []string{"RS256"}) {
+				t.Fatalf("NewProvider() unexpected algorithms value, got=%s, want=RS256", p.algorithms)
 			}
 		}
 
