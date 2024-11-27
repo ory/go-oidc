@@ -290,7 +290,7 @@ func TestNewProvider(t *testing.T) {
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				io.WriteString(w, strings.ReplaceAll(test.data, "ISSUER", issuer))
+				_, _ = io.WriteString(w, strings.ReplaceAll(test.data, "ISSUER", issuer))
 			}
 			s := httptest.NewServer(http.HandlerFunc(hf))
 			defer s.Close()
@@ -342,6 +342,63 @@ func TestNewProvider(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("caches openid config", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		nFetched := 0
+
+		hf := func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/.well-known/openid-configuration" {
+				http.NotFound(w, r)
+				return
+			}
+			nFetched++
+			issuer := "http://" + r.Host
+
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, fmt.Sprintf(`{
+				"issuer": "%[1]s",
+				"authorization_endpoint": "%[1]s/auth",
+				"token_endpoint": "%[1]s/token",
+				"jwks_uri": "%[1]s/keys",
+				"id_token_signing_alg_values_supported": ["RS256"]
+			}`, issuer))
+		}
+		s0 := httptest.NewServer(http.HandlerFunc(hf))
+		defer s0.Close()
+		s1 := httptest.NewServer(http.HandlerFunc(hf))
+		defer s1.Close()
+
+		for i := range 200 {
+			s := []*httptest.Server{s0, s1}[i%2]
+
+			p, err := NewProvider(ctx, s.URL)
+			if err != nil {
+				t.Fatalf("NewProvider() failed: %v", err)
+			}
+			if p.issuer != s.URL {
+				t.Fatalf("NewProvider() unexpected issuer value, got=%s, want=%s", p.issuer, s.URL)
+			}
+			if p.authURL != s.URL+"/auth" {
+				t.Fatalf("NewProvider() unexpected authURL value, got=%s, want=%s/auth", p.authURL, s.URL)
+			}
+			if p.tokenURL != s.URL+"/token" {
+				t.Fatalf("NewProvider() unexpected tokenURL value, got=%s, want=%s/token", p.tokenURL, s.URL)
+			}
+			if p.jwksURL != s.URL+"/keys" {
+				t.Fatalf("NewProvider() unexpected jwksURL value, got=%s, want=%s/keys", p.jwksURL, s.URL)
+			}
+			if !reflect.DeepEqual(p.algorithms, []string{"RS256"}) {
+				t.Fatalf("NewProvider() unexpected algorithms value, got=%s, want=RS256", p.algorithms)
+			}
+		}
+
+		if nFetched != 2 {
+			t.Errorf("NewProvider() fetched openid config too often, got=%d, want=2", nFetched)
+		}
+	})
 }
 
 func TestGetClient(t *testing.T) {
