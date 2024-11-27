@@ -359,40 +359,44 @@ func TestNewProvider(t *testing.T) {
 
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, fmt.Sprintf(`{
-				"issuer": "%s",
-				"authorization_endpoint": "https://example.com/auth",
-				"token_endpoint": "https://example.com/token",
-				"jwks_uri": "https://example.com/keys",
+				"issuer": "%[1]s",
+				"authorization_endpoint": "%[1]s/auth",
+				"token_endpoint": "%[1]s/token",
+				"jwks_uri": "%[1]s/keys",
 				"id_token_signing_alg_values_supported": ["RS256"]
 			}`, issuer))
 		}
-		s := httptest.NewServer(http.HandlerFunc(hf))
-		defer s.Close()
+		s0 := httptest.NewServer(http.HandlerFunc(hf))
+		defer s0.Close()
+		s1 := httptest.NewServer(http.HandlerFunc(hf))
+		defer s1.Close()
 
-		for range 100 {
+		for i := range 200 {
+			s := []*httptest.Server{s0, s1}[i%2]
+
 			p, err := NewProvider(ctx, s.URL)
 			if err != nil {
 				t.Fatalf("NewProvider() failed: %v", err)
 			}
-			if p.issuer != "http://"+s.Listener.Addr().String() {
+			if p.issuer != s.URL {
 				t.Fatalf("NewProvider() unexpected issuer value, got=%s, want=%s", p.issuer, s.URL)
 			}
-			if p.authURL != "https://example.com/auth" {
-				t.Fatalf("NewProvider() unexpected authURL value, got=%s, want=https://example.com/auth", p.authURL)
+			if p.authURL != s.URL+"/auth" {
+				t.Fatalf("NewProvider() unexpected authURL value, got=%s, want=%s/auth", p.authURL, s.URL)
 			}
-			if p.tokenURL != "https://example.com/token" {
-				t.Fatalf("NewProvider() unexpected tokenURL value, got=%s, want=https://example.com/token", p.tokenURL)
+			if p.tokenURL != s.URL+"/token" {
+				t.Fatalf("NewProvider() unexpected tokenURL value, got=%s, want=%s/token", p.tokenURL, s.URL)
 			}
-			if p.jwksURL != "https://example.com/keys" {
-				t.Fatalf("NewProvider() unexpected jwksURL value, got=%s, want=https://example.com/keys", p.jwksURL)
+			if p.jwksURL != s.URL+"/keys" {
+				t.Fatalf("NewProvider() unexpected jwksURL value, got=%s, want=%s/keys", p.jwksURL, s.URL)
 			}
 			if !reflect.DeepEqual(p.algorithms, []string{"RS256"}) {
 				t.Fatalf("NewProvider() unexpected algorithms value, got=%s, want=RS256", p.algorithms)
 			}
 		}
 
-		if nFetched > 5 {
-			t.Errorf("NewProvider() fetched openid config too often, got=%d, want<=5", nFetched)
+		if nFetched > 10 {
+			t.Errorf("NewProvider() fetched openid config too often, got=%d, want<=10", nFetched)
 		}
 	})
 }
