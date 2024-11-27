@@ -205,7 +205,7 @@ func (p *ProviderConfig) NewProvider(ctx context.Context) *Provider {
 
 var oidcConfigCache, _ = ristretto.NewCache(&ristretto.Config[string, []byte]{
 	NumCounters: 10_000,
-	MaxCost:     10_000 * 1024 * 1024, // 10k items, 1MB each
+	MaxCost:     1_000 * 1024, // 10k items, 1kB each
 	BufferItems: 64,
 })
 
