@@ -164,7 +164,7 @@ var supportedAlgorithms = map[string]bool{
 // parsing.
 //
 //	// Directly fetch the metadata document.
-// 	resp, err := http.Get("https://login.example.com/custom-metadata-path")
+//	resp, err := http.Get("https://login.example.com/custom-metadata-path")
 //	if err != nil {
 //		// ...
 //	}
@@ -233,6 +233,11 @@ var oidcConfigCache, _ = ristretto.NewCache(&ristretto.Config[string, []byte]{
 	MaxCost:     50_000 * 1024, // 50k items, 1kB each, 50mb cache
 	BufferItems: 64,
 })
+
+// GetCacheMetrics returns the cache metrics for the OpenID Connect discovery cache.
+func GetCacheMetrics() *ristretto.Metrics {
+	return oidcConfigCache.Metrics
+}
 
 // NewProvider uses the OpenID Connect discovery mechanism to construct a Provider.
 // The issuer is the URL identifier for the service. For example: "https://accounts.google.com"
